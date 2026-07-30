@@ -2,7 +2,9 @@
 
 ## Visão Geral
 
-Sistema de painel gráfico leve (BMO) desenvolvido em **Python (Tkinter)** que integra uma Inteligência Artificial local (**Qwen 3:1.7B** via **Ollama**) e ferramentas de automação para o sistema operacional, com suporte opcional a síntese de voz (**pyttsx3**).
+Sistema de painel gráfico leve (BMO) desenvolvido em **Python (Tkinter)** que integra uma Inteligência Artificial local (**Qwen 3:1.7B** via **Ollama**) e ferramentas de automação para o sistema operacional, com suporte opcional a síntese de voz (**pyttsx3**). 
+
+O objetivo do projeto é torna-lo o mais parecido com o personagem "BMO" de "hora de aventura".
 
 ---
 
