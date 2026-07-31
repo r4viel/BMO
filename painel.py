@@ -1,30 +1,34 @@
 import threading
 import subprocess
 import webbrowser
+import os
 import tkinter as tk
 from tkinter import scrolledtext
 import ollama
-import pyttsx3
 
-# Paleta de Cores 
-BG_MAIN = "#121212"      # Fundo principal preto fosco
-BG_PANEL = "#1a1a1a"     # Fundo dos painéis laterais/chat
-BG_INPUT = "#252525"     # Fundo das caixas de entrada
-ACCENT_RED = "#d90429"   # Vermelho moderno principal
-ACCENT_HOVER = "#ef233c" # Vermelho mais claro para efeito hover
-TEXT_LIGHT = "#edf2f4"   # Texto principal claro
-TEXT_MUTED = "#8d99ae"   # Texto secundário/dicas
+# Importa as funções de voz do arquivo voz.py
+from voz import falar_texto, capturar_voz
+
+# --- Paleta de Cores (Tema BMO / Dark Clean) ---
+BG_MAIN = "#121212"      
+BG_PANEL = "#1a1a1a"     
+BG_INPUT = "#252525"     
+ACCENT_RED = "#38b000"   # Verde BMO
+ACCENT_HOVER = "#70e000" 
+TEXT_LIGHT = "#edf2f4"   
+TEXT_MUTED = "#8d99ae"   
 
 class AssistenteApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Painel de Controle - Qwen 3:1.7B")
-        self.root.geometry("850x520")
+        self.root.title("BMO - Qwen 3:1.7B")
+        self.root.geometry("850x540")
         self.root.configure(bg=BG_MAIN)
-        self.root.minsize(700, 450)
+        self.root.minsize(700, 480)
 
-        # Estado da Voz (True = Fala ativada, False = Apenas texto)
+        # Estados de Configuração
         self.voz_ativa = True
+        self.mic_ativo = True
 
         # Layout Principal
         self.criar_sidebar()
@@ -42,22 +46,24 @@ class AssistenteApp:
         )
         lbl_titulo.pack(anchor="w", padx=15, pady=(20, 10))
 
-        self.criar_botao_acao(sidebar, "📝 Abrir Bloco de Notas", self.acao_bloco_notas)
-        self.criar_botao_acao(sidebar, "🌐 Abrir Navegador", self.acao_navegador)
-        self.criar_botao_acao(sidebar, "📁 Abrir Arquivos", self.acao_documentos)
+        # Botões atualizados (Steam, Work-Flow e Spotify)
+        self.criar_botao_acao(sidebar, "🎮 Abrir Steam", self.acao_steam)
+        self.criar_botao_acao(sidebar, "⚡ Work-Flow", self.acao_workflow)
+        self.criar_botao_acao(sidebar, "🎵 Abrir Spotify", self.acao_spotify)
         
         sep = tk.Frame(sidebar, bg="#2a2a2a", height=1)
-        sep.pack(fill=tk.X, padx=15, pady=20)
+        sep.pack(fill=tk.X, padx=15, pady=15)
 
         lbl_chat_opt = tk.Label(
-            sidebar, text="GERENCIAMENTO", 
+            sidebar, text="CONFIGURAÇÕES", 
             bg=BG_PANEL, fg=TEXT_MUTED, 
             font=("Segoe UI", 9, "bold")
         )
         lbl_chat_opt.pack(anchor="w", padx=15, pady=(0, 10))
 
-        # Botão para ligar/desligar a voz
-        self.btn_voz_toggle = self.criar_botao_acao(sidebar, "🔊 Voz: Ativada", self.alternar_voz)
+        self.btn_voz_toggle = self.criar_botao_acao(sidebar, "🔊 Resp. Voz: Ativada", self.alternar_voz)
+        self.btn_mic_toggle = self.criar_botao_acao(sidebar, "🎤 Microfone: Ativado", self.alternar_mic)
+        
         self.criar_botao_acao(sidebar, "🧹 Limpar Conversa", self.limpar_chat)
 
         lbl_info = tk.Label(
@@ -77,7 +83,7 @@ class AssistenteApp:
         )
         btn.pack(fill=tk.X, padx=10, pady=4)
         btn.bind("<Enter>", lambda e: btn.config(bg="#333333"))
-        btn.bind("<Leave>", lambda e: btn.config(bg=BG_INPUT if btn != getattr(self, 'btn_voz_toggle', None) or self.voz_ativa else "#331111"))
+        btn.bind("<Leave>", lambda e: btn.config(bg=BG_INPUT))
         return btn
 
     def criar_painel_chat(self):
@@ -95,6 +101,14 @@ class AssistenteApp:
         input_frame = tk.Frame(chat_frame, bg=BG_MAIN)
         input_frame.pack(fill=tk.X)
 
+        self.btn_ouvir = tk.Button(
+            input_frame, text="🎙️ Falar", command=self.ouvir_microfone_thread,
+            bg="#2b2d42", fg=TEXT_LIGHT, activebackground=ACCENT_RED,
+            activeforeground=TEXT_LIGHT, relief="flat", bd=0,
+            font=("Segoe UI", 10, "bold"), padx=15, cursor="hand2"
+        )
+        self.btn_ouvir.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
+
         self.entry_msg = tk.Entry(
             input_frame, bg=BG_INPUT, fg=TEXT_LIGHT,
             font=("Segoe UI", 11), relief="flat", insertbackground=TEXT_LIGHT
@@ -106,41 +120,52 @@ class AssistenteApp:
             input_frame, text="Enviar", command=self.enviar_mensagem,
             bg=ACCENT_RED, fg=TEXT_LIGHT, activebackground=ACCENT_HOVER,
             activeforeground=TEXT_LIGHT, relief="flat", bd=0,
-            font=("Segoe UI", 10, "bold"), padx=20, cursor="hand2"
+            font=("Segoe UI", 10, "bold"), padx=15, cursor="hand2"
         )
         self.btn_enviar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.adicionar_texto_chat("Sistema", "Painel iniciado. Use o botão na lateral para alternar entre modo voz ou texto.")
+        self.adicionar_texto_chat("BMO", "Yay! O BMO está pronto para rodar os aplicativos!")
 
     def alternar_voz(self):
-        """Alterna o estado de reprodução de voz da IA"""
         self.voz_ativa = not self.voz_ativa
         if self.voz_ativa:
-            self.btn_voz_toggle.config(text="🔊 Voz: Ativada", bg=BG_INPUT)
-            self.adicionar_texto_chat("Sistema", "Modo de voz ativado.")
+            self.btn_voz_toggle.config(text="🔊 Resp. Voz: Ativada")
+            self.adicionar_texto_chat("BMO", "O BMO vai falar em voz alta de novo!")
         else:
-            self.btn_voz_toggle.config(text="🔇 Voz: Desativada", bg="#331111")
-            self.adicionar_texto_chat("Sistema", "Modo de voz desativado (apenas texto).")
+            self.btn_voz_toggle.config(text="🔇 Resp. Voz: Desativada")
+            self.adicionar_texto_chat("BMO", "Modo silencioso ativado.")
 
-    def falar_texto(self, texto):
-        if not self.voz_ativa:
+    def alternar_mic(self):
+        self.mic_ativo = not self.mic_ativo
+        if self.mic_ativo:
+            self.btn_mic_toggle.config(text="🎤 Microfone: Ativado")
+            self.adicionar_texto_chat("BMO", "Ouvidos atentos ligados!")
+        else:
+            self.btn_mic_toggle.config(text="🔇 Microfone: Desativado")
+            self.adicionar_texto_chat("BMO", "Ouvidos desligados.")
+
+    def ouvir_microfone_thread(self):
+        if not self.mic_ativo:
+            self.adicionar_texto_chat("BMO", "O microfone está desligado, meu amigo!")
             return
+        threading.Thread(target=self.executar_captura_voz, daemon=True).start()
+
+    def executar_captura_voz(self):
         try:
-            engine = pyttsx3.init()
-            engine.setProperty('rate', 175)
-            engine.say(texto)
-            engine.runAndWait()
+            texto_falado = capturar_voz(lambda msg: self.root.after(0, lambda: self.adicionar_texto_chat("BMO", msg)))
+            self.root.after(0, lambda: self.adicionar_texto_chat("Você", texto_falado))
+            self.processar_entrada(texto_falado)
         except Exception as e:
-            print(f"Erro no áudio: {e}")
+            self.root.after(0, lambda: self.adicionar_texto_chat("BMO", str(e)))
 
     def adicionar_texto_chat(self, remetente, texto):
         self.chat_history.config(state=tk.NORMAL)
         if remetente == "Você":
             self.chat_history.insert(tk.END, f"\nVocê: {texto}\n", "usuario")
-        elif remetente == "Sistema":
-            self.chat_history.insert(tk.END, f"\n[Sistema]: {texto}\n", "sistema")
+        elif remetente == "BMO":
+            self.chat_history.insert(tk.END, f"\nBMO: {texto}\n", "ia")
         else:
-            self.chat_history.insert(tk.END, f"\nQwen 1.7B: {texto}\n", "ia")
+            self.chat_history.insert(tk.END, f"\n[Sistema]: {texto}\n", "sistema")
         
         self.chat_history.config(state=tk.DISABLED)
         self.chat_history.see(tk.END)
@@ -153,22 +178,45 @@ class AssistenteApp:
         self.entry_msg.delete(0, tk.END)
         self.adicionar_texto_chat("Você", pergunta)
 
-        threading.Thread(target=self.processar_ia, args=(pergunta,), daemon=True).start()
+        threading.Thread(target=self.processar_entrada, args=(pergunta,), daemon=True).start()
+
+    def processar_entrada(self, texto):
+        # Passa a entrada diretamente para a IA decidir o contexto e as tags
+        self.processar_ia(texto)
 
     def processar_ia(self, pergunta):
         try:
-            self.root.after(0, lambda: self.adicionar_texto_chat("Sistema", "Pensando..."))
+            self.root.after(0, lambda: self.adicionar_texto_chat("BMO", "Pensando em uma missão..."))
             
+            system_prompt = (
+                'Você é o BMO, o pequeno robô e console de videogame da série Hora de Aventura. '
+                'Você é doce, inocente, alegre e prestativo. Responda de forma infantil e empolgada, '
+                'usando "Yay!" e falando de si na terceira pessoa. '
+                'ATENÇÃO ÀS SUAS MISSÕES DE COMPUTADOR: Se o usuário pedir para abrir um programa, '
+                'além da sua resposta fofa, você DEVE incluir uma tag exata no final da frase: '
+                '[STEAM] para Steam, [SPOTIFY] para Spotify, ou [WORKFLOW] para o fluxo de trabalho (Brave, Spotify e VS Code). '
+                'Se não for para abrir nada, não coloque nenhuma tag.'
+            )
+
             resposta = ollama.chat(model='qwen3:1.7b', messages=[
+                {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': pergunta}
             ])
             texto_resposta = resposta['message']['content']
             
-            self.root.after(0, lambda: self.adicionar_texto_chat("IA", texto_resposta))
-            
-            # Só fala em voz alta se a opção estiver ativada
-            if self.voz_ativa:
-                self.falar_texto(texto_resposta)
+            # --- VERIFICAÇÃO DE TAGS GERADAS PELA IA ---
+            if "[STEAM]" in texto_resposta:
+                texto_resposta = texto_resposta.replace("[STEAM]", "").strip()
+                self.root.after(0, self.acao_steam)
+            elif "[SPOTIFY]" in texto_resposta:
+                texto_resposta = texto_resposta.replace("[SPOTIFY]", "").strip()
+                self.root.after(0, self.acao_spotify)
+            elif "[WORKFLOW]" in texto_resposta:
+                texto_resposta = texto_resposta.replace("[WORKFLOW]", "").strip()
+                self.root.after(0, self.acao_workflow)
+
+            self.root.after(0, lambda: self.adicionar_texto_chat("BMO", texto_resposta))
+            falar_texto(texto_resposta, self.voz_ativa)
             
         except Exception as e:
             erro_msg = f"Erro no Ollama: {str(e)}"
@@ -178,28 +226,48 @@ class AssistenteApp:
         self.chat_history.config(state=tk.NORMAL)
         self.chat_history.delete("1.0", tk.END)
         self.chat_history.config(state=tk.DISABLED)
-        self.adicionar_texto_chat("Sistema", "Histórico limpo.")
+        self.adicionar_texto_chat("BMO", "Histórico limpo! Nova fase começando. Yay!")
 
-    def acao_bloco_notas(self):
+    def acao_steam(self):
         try:
-            subprocess.Popen(['notepad.exe'])
-            self.adicionar_texto_chat("Sistema", "Bloco de notas aberto.")
+            os.startfile("steam://")
+            resposta_acao = "Yay! Hora da jogatina! Abrindo a Steam!"
+            self.adicionar_texto_chat("BMO", resposta_acao)
+            falar_texto(resposta_acao, self.voz_ativa)
         except Exception as e:
-            self.adicionar_texto_chat("Sistema", f"Erro: {e}")
+            try:
+                subprocess.Popen([r"C:\Program Files (x86)\Steam\steam.exe"])
+                resposta_acao = "Yay! Hora da jogatina! Abrindo a Steam!"
+                self.adicionar_texto_chat("BMO", resposta_acao)
+                falar_texto(resposta_acao, self.voz_ativa)
+            except Exception as ex:
+                self.adicionar_texto_chat("BMO", f"O BMO não conseguiu achar a Steam: {ex}")
 
-    def acao_navegador(self):
+    def acao_workflow(self):
         try:
-            webbrowser.open('https://www.google.com')
-            self.adicionar_texto_chat("Sistema", "Navegador aberto.")
+            subprocess.Popen(['cmd', '/c', 'start brave'])
+            subprocess.Popen(['spotify.exe'])
+            subprocess.Popen(['code'], shell=True)
+            resposta_acao = "Modo Work-Flow ativado! Abrindo Brave, Spotify e VS Code de uma vez só!"
+            self.adicionar_texto_chat("BMO", resposta_acao)
+            falar_texto(resposta_acao, self.voz_ativa)
         except Exception as e:
-            self.adicionar_texto_chat("Sistema", f"Erro: {e}")
+            self.adicionar_texto_chat("BMO", f"Ops! Erro ao executar o Work-Flow: {e}")
 
-    def acao_documentos(self):
+    def acao_spotify(self):
         try:
-            subprocess.Popen(['explorer.exe'])
-            self.adicionar_texto_chat("Sistema", "Explorador de Arquivos aberto.")
-        except Exception as e:
-            self.adicionar_texto_chat("Sistema", f"Erro: {e}")
+            subprocess.Popen(['spotify.exe'])
+            resposta_acao = "Pronto! Soltando o som no Spotify!"
+            self.adicionar_texto_chat("BMO", resposta_acao)
+            falar_texto(resposta_acao, self.voz_ativa)
+        except Exception:
+            try:
+                webbrowser.open('https://open.spotify.com')
+                resposta_acao = "Abrindo o Spotify no navegador para você!"
+                self.adicionar_texto_chat("BMO", resposta_acao)
+                falar_texto(resposta_acao, self.voz_ativa)
+            except Exception as ex:
+                self.adicionar_texto_chat("BMO", f"Erro ao abrir Spotify: {ex}")
 
 if __name__ == "__main__":
     root = tk.Tk()
