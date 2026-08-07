@@ -2,12 +2,16 @@ import threading
 import subprocess
 import webbrowser
 import os
+from datetime import datetime
 import tkinter as tk
 from tkinter import scrolledtext
 import ollama
 
 # Importa as funções de voz do arquivo voz.py
 from voz import falar_texto, capturar_voz
+
+# --- Configuração do Cofre do Obsidian ---
+OBSIDIAN_VAULT_PATH = r"COLOQUE O CAMINHO DO SEU COFRE NO OBSIDIAN"
 
 # --- Paleta de Cores (Tema BMO / Dark Clean) ---
 BG_MAIN = "#121212"      
@@ -46,7 +50,7 @@ class AssistenteApp:
         )
         lbl_titulo.pack(anchor="w", padx=15, pady=(20, 10))
 
-        # Botões atualizados (Steam, Work-Flow e Spotify)
+        # Botões de atalho rápido
         self.criar_botao_acao(sidebar, "🎮 Abrir Steam", self.acao_steam)
         self.criar_botao_acao(sidebar, "⚡ Work-Flow", self.acao_workflow)
         self.criar_botao_acao(sidebar, "🎵 Abrir Spotify", self.acao_spotify)
@@ -124,7 +128,7 @@ class AssistenteApp:
         )
         self.btn_enviar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.adicionar_texto_chat("BMO", "Yay! O BMO está pronto para rodar os aplicativos!")
+        self.adicionar_texto_chat("BMO", "Yay! O BMO está pronto para gerenciar suas missões e notas!")
 
     def alternar_voz(self):
         self.voz_ativa = not self.voz_ativa
@@ -181,21 +185,29 @@ class AssistenteApp:
         threading.Thread(target=self.processar_entrada, args=(pergunta,), daemon=True).start()
 
     def processar_entrada(self, texto):
-        # Passa a entrada diretamente para a IA decidir o contexto e as tags
         self.processar_ia(texto)
 
     def processar_ia(self, pergunta):
         try:
             self.root.after(0, lambda: self.adicionar_texto_chat("BMO", "Pensando em uma missão..."))
             
+            # Descobre dinamicamente as pastas existentes no cofre do Obsidian
+            pastas_existentes = []
+            if os.path.exists(OBSIDIAN_VAULT_PATH):
+                pastas_existentes = [d for d in os.listdir(OBSIDIAN_VAULT_PATH) 
+                                     if os.path.isdir(os.path.join(OBSIDIAN_VAULT_PATH, d)) and not d.startswith('.')]
+            
+            info_pastas = f"Pastas atuais disponíveis no cofre: {pastas_existentes}" if pastas_existentes else "Nenhuma pasta criada ainda (apenas a raiz)."
+
             system_prompt = (
                 'Você é o BMO, o pequeno robô e console de videogame da série Hora de Aventura. '
                 'Você é doce, inocente, alegre e prestativo. Responda de forma infantil e empolgada, '
                 'usando "Yay!" e falando de si na terceira pessoa. '
-                'ATENÇÃO ÀS SUAS MISSÕES DE COMPUTADOR: Se o usuário pedir para abrir um programa, '
-                'além da sua resposta fofa, você DEVE incluir uma tag exata no final da frase: '
-                '[STEAM] para Steam, [SPOTIFY] para Spotify, ou [WORKFLOW] para o fluxo de trabalho (Brave, Spotify e VS Code). '
-                'Se não for para abrir nada, não coloque nenhuma tag.'
+                'ATENÇÃO ÀS SUAS MISSÕES: '
+                '1. Se o usuário pedir para abrir um programa, use a tag correspondente: [STEAM], [SPOTIFY] ou [WORKFLOW]. '
+                '2. Se o usuário pedir para criar uma nota, anotação ou missão, você DEVE incluir uma tag estruturada assim no final: '
+                '[OBSIDIAN: NomeDaPasta | Titulo da Nota | Conteúdo resumido]. '
+                f'({info_pastas}). Se o usuário não especificar uma pasta ou se for algo geral, use "raiz" como o nome da pasta.'
             )
 
             resposta = ollama.chat(model='qwen3:1.7b', messages=[
@@ -204,7 +216,7 @@ class AssistenteApp:
             ])
             texto_resposta = resposta['message']['content']
             
-            # --- VERIFICAÇÃO DE TAGS GERADAS PELA IA ---
+            # --- PROCESSAMENTO DE TAGS DA IA ---
             if "[STEAM]" in texto_resposta:
                 texto_resposta = texto_resposta.replace("[STEAM]", "").strip()
                 self.root.after(0, self.acao_steam)
@@ -214,6 +226,21 @@ class AssistenteApp:
             elif "[WORKFLOW]" in texto_resposta:
                 texto_resposta = texto_resposta.replace("[WORKFLOW]", "").strip()
                 self.root.after(0, self.acao_workflow)
+            elif "[OBSIDIAN:" in texto_resposta:
+                try:
+                    inicio = texto_resposta.find("[OBSIDIAN:")
+                    fim = texto_resposta.find("]", inicio)
+                    conteudo_tag = texto_resposta[inicio + 10:fim]
+                    partes = [p.strip() for p in conteudo_tag.split("|")]
+                    
+                    pasta = partes[0] if len(partes) > 2 else "raiz"
+                    titulo = partes[1] if len(partes) > 2 else partes[0]
+                    conteudo = partes[2] if len(partes) > 2 else (partes[1] if len(partes) > 1 else "Nota registrada pelo BMO.")
+                    
+                    texto_resposta = texto_resposta.replace(texto_resposta[inicio:fim+1], "").strip()
+                    self.root.after(0, lambda: self.acao_obsidian(titulo, conteudo, pasta))
+                except Exception:
+                    pass
 
             self.root.after(0, lambda: self.adicionar_texto_chat("BMO", texto_resposta))
             falar_texto(texto_resposta, self.voz_ativa)
@@ -268,6 +295,38 @@ class AssistenteApp:
                 falar_texto(resposta_acao, self.voz_ativa)
             except Exception as ex:
                 self.adicionar_texto_chat("BMO", f"Erro ao abrir Spotify: {ex}")
+
+    def acao_obsidian(self, titulo_missao, conteudo, pasta_destino="raiz"):
+        try:
+            if pasta_destino.lower() == "raiz" or not pasta_destino:
+                diretorio_alvo = OBSIDIAN_VAULT_PATH
+            else:
+                diretorio_alvo = os.path.join(OBSIDIAN_VAULT_PATH, pasta_destino)
+            
+            os.makedirs(diretorio_alvo, exist_ok=True)
+            
+            nome_arquivo = f"{titulo_missao.replace(' ', '_')}.md"
+            caminho_completo = os.path.join(diretorio_alvo, nome_arquivo)
+            
+            texto_markdown = f"""# Missão do BMO: {titulo_missao}
+* **Data:** {datetime.now().strftime('%d/%m/%Y %H:%M')}
+* **Pasta:** {pasta_destino}
+* **Status:** 🟢 Ativa
+
+## Detalhes da Aventura
+{conteudo}
+
+---
+*Nota registrada automaticamente pelo BMO Assistant.*
+"""
+            with open(caminho_completo, "w", encoding="utf-8") as f:
+                f.write(texto_markdown)
+                
+            resposta_acao = f"Missão anotada na pasta '{pasta_destino}' do Obsidian: {titulo_missao}!"
+            self.adicionar_texto_chat("BMO", resposta_acao)
+            falar_texto(resposta_acao, self.voz_ativa)
+        except Exception as e:
+            self.adicionar_texto_chat("BMO", f"O BMO falhou ao criar a nota no Obsidian: {e}")
 
 if __name__ == "__main__":
     root = tk.Tk()
