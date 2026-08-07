@@ -9,7 +9,7 @@ O projeto roda localmente utilizando o **Ollama** (`qwen3:1.7b`), permitindo int
 ## 🚀 Funcionalidades
 
 * **Personalidade do BMO:** O assistente responde de forma empolgada, fofa, usando "Yay!" e tratando você como seu melhor amigo de aventuras.
-* **Inteligência por Tags:** O BMO decide autonomamente quando executar automações no seu computador através de tags na conversa (`[STEAM]`, `[SPOTIFY]`, `[WORKFLOW]`).
+* **Inteligência por Tags:** O BMO decide autonomamente quando executar automações ou criar notas no seu computador através de tags na conversa.
 * **Interação por Voz:** 
   * **Ouvir:** Captura sua fala pelo microfone usando `SpeechRecognition`.
   * **Falar:** Converte as respostas em áudio com ritmo acelerado (`pyttsx3`) para simular o estilo enérgico do personagem.
@@ -17,6 +17,7 @@ O projeto roda localmente utilizando o **Ollama** (`qwen3:1.7b`), permitindo int
   * **Abrir Steam**
   * **Work-Flow:** Abre o Brave, o Spotify e o VS Code simultaneamente.
   * **Abrir Spotify** dedicado.
+  * **Criar Nota** cria nota no seu cofre do obsidian
 * **Interface Gráfica Moderna (Tkinter):** Layout minimalista e customizado em modo escuro com toques de verde inspirados no BMO.
 
 ---
